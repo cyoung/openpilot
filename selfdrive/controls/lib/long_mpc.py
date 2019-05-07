@@ -7,6 +7,7 @@ from common.realtime import sec_since_boot
 from selfdrive.controls.lib.radar_helpers import _LEAD_ACCEL_TAU
 from selfdrive.controls.lib.longitudinal_mpc import libmpc_py
 from selfdrive.controls.lib.drive_helpers import MPC_COST_LONG
+import math
 
 # One, two and three bar distances (in s)
 ONE_BAR_DISTANCE = 0.9  # in seconds
