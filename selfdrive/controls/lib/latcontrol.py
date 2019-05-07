@@ -48,7 +48,7 @@ class LatControl(object):
       if kegman.conf['tuneGernby'] == "1":
         self.steerKpV = np.array([float(kegman.conf['Kp'])])
         self.steerKiV = np.array([float(kegman.conf['Ki'])])
-        self.total_actual_projection = max(0.0, float(kegman.conf['reactSteer']))
+        self.total_actual_projection = max(0.0, float(kegman.conf['dampSteer']) + float(kegman.conf['reactSteer']))
         self.total_desired_projection = max(0.0, float(kegman.conf['dampMPC']) + float(kegman.conf['reactMPC']))
         self.actual_smoothing = max(1.0, float(kegman.conf['dampSteer']) / _DT)
         self.desired_smoothing = max(1.0, float(kegman.conf['dampMPC']) / _DT)
@@ -101,15 +101,15 @@ class LatControl(object):
         projected_desired_rate = interp(cur_time + self.total_desired_projection, path_plan.mpcTimes, path_plan.mpcRates)
         self.dampened_desired_rate += ((projected_desired_rate - self.dampened_desired_rate) / self.desired_smoothing)
 
-        self.dampened_angle_steers = float(angle_steers)
+        projected_angle_steers = float(angle_steers) + self.total_actual_projection * float(angle_rate)
         if not steer_override:
-          self.dampened_angle_steers += (self.total_actual_projection * float(angle_rate)) / self.actual_smoothing
+          self.dampened_angle_steers += ((projected_angle_steers - self.dampened_angle_steers) / self.actual_smoothing)
 
       if CP.steerControlType == car.CarParams.SteerControlType.torque:
         steers_max = get_steer_max(CP, v_ego)
         self.pid.pos_limit = steers_max
         self.pid.neg_limit = -steers_max
-        deadzone = 0.0
+        #deadzone = 0.0
 
         if self.gernbySteer:
           angle_feedforward = self.dampened_desired_angle - path_plan.angleOffset
@@ -119,9 +119,10 @@ class LatControl(object):
           steer_feedforward = v_ego**2 * (rate_feedforward + angle_feedforward)
         else:
           steer_feedforward = v_ego**2 * (self.dampened_desired_angle - path_plan.angleOffset)
+          print(steer_feedforward)
 
         output_steer = self.pid.update(self.dampened_desired_angle, self.dampened_angle_steers, check_saturation=(v_ego > 10),
-                                      override=steer_override, feedforward=steer_feedforward, speed=v_ego, deadzone=deadzone)
+                                      override=steer_override, feedforward=steer_feedforward, speed=v_ego, deadzone= -0.1)
         if self.gernbySteer and not steer_override and v_ego > 10.0:
           if abs(angle_steers) > (self.angle_ff_bp[0][1] / 2.0):
             self.adjust_angle_gain()
