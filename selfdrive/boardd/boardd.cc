@@ -671,7 +671,7 @@ void *pigeon_send_thread(void *crap) {
   void *context = zmq_ctx_new();
   void *subscriber = zmq_socket(context, ZMQ_SUB);
   zmq_setsockopt(subscriber, ZMQ_SUBSCRIBE, "", 0);
-  zmq_connect(subscriber, "tcp://10.0.0.199:8069");
+  zmq_connect(subscriber, "tcp://127.0.0.1:8069");
 
   // drain sendgps to delete any stale messages from previous runs
 
