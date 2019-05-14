@@ -1,5 +1,6 @@
 import json
 import os
+import random
 
 class kegman_conf():
   def __init__(self, CP=None):
@@ -41,7 +42,7 @@ class kegman_conf():
         self.config = json.load(f)
 
       if "grafanaUser" not in self.config:
-        self.config.update({"grafanaUser":"noUser"})
+        self.config.update({"grafanaUser":str(random.randint(0,1000000))})
         self.element_updated = True
 
       if "battPercOff" not in self.config:
@@ -69,6 +70,10 @@ class kegman_conf():
         self.config.update({"dampSteer":"-1"})
         self.config.update({"reactSteer":"-1"})
         self.element_updated = True
+	
+      if "liveParams" not in self.config:
+        self.config.update({"liveParams":"1"})
+        self.element_updated = True
 
 
       # Force update battery charge limits to higher values for Big Model
@@ -85,7 +90,8 @@ class kegman_conf():
       self.config = {"cameraOffset":"0.06", "lastTrMode":"1", "battChargeMin":"60", "battChargeMax":"70", \
                      "wheelTouchSeconds":"180", "battPercOff":"25", "carVoltageMinEonShutdown":"11800", \
                      "brakeStoppingTarget":"0.25", "tuneGernby":"1", "reactMPC":"-1", "reactSteer":"-1", \
-                     "dampMPC":"-1", "dampSteer":"-1", "Kp":"-1", "Ki":"-1", "rateFF":"-1"}
+                     "dampMPC":"-1", "dampSteer":"-1", "Kp":"-1", "Ki":"-1", "rateFF":"-1", \
+                     "liveParams":"1", "grafanaUser":str(random.randint(0,1000000))}
 
       self.write_config(self.config)
     return self.config
