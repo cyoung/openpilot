@@ -48,6 +48,15 @@
 #define SAFETY_ALLOUTPUT 0x1337
 #define SAFETY_ELM327 0xE327
 
+#undef EXTERNAL_GPS
+#ifndef EXTERNAL_GPS
+#define __pigeon_set_baud(x) pigeon_set_baud(x)
+#define __pigeon_gps_send_string(x) _pigeon_send(x, sizeof(x)-1)
+#else
+#define __pigeon_set_baud(x) external_gps_set_baud()
+#define __pigeon_gps_send_string(x) external_gps_send()
+#endif
+
 namespace {
 
 volatile int do_exit = 0;
@@ -62,14 +71,15 @@ bool loopback_can = false;
 bool is_grey_panda = false;
 
 pthread_t safety_setter_thread_handle = -1;
-pthread_t pigeon_thread_handle = -1;
+pthread_t pigeon_recv_thread_handle = -1;
 bool pigeon_needs_init;
 
 int big_recv;
 uint32_t big_data[RECV_SIZE*2];
 
 void pigeon_init();
-void *pigeon_thread(void *crap);
+void *pigeon_recv_thread(void *crap);
+void *pigeon_send_thread(void *crap);
 
 void *safety_setter_thread(void *s) {
   char *value;
@@ -193,8 +203,11 @@ bool usb_connect() {
     LOGW("grey panda detected");
     is_grey_panda = true;
     pigeon_needs_init = true;
-    if (pigeon_thread_handle == -1) {
-      err = pthread_create(&pigeon_thread_handle, NULL, pigeon_thread, NULL);
+    if (pigeon_recv_thread_handle == -1) {
+      err = pthread_create(&pigeon_recv_thread_handle, NULL, pigeon_recv_thread, NULL);
+      assert(err == 0);
+      pthread_t pigeon_send_thread_handle;
+      err = pthread_create(&pigeon_send_thread_handle, NULL, pigeon_send_thread, NULL);
       assert(err == 0);
     }
   }
@@ -543,8 +556,6 @@ void *can_health_thread(void *crap) {
   return NULL;
 }
 
-#define pigeon_send(x) _pigeon_send(x, sizeof(x)-1)
-
 void hexdump(unsigned char *d, int l) {
   for (int i = 0; i < l; i++) {
     if (i!=0 && i%0x10 == 0) printf("\n");
@@ -553,7 +564,7 @@ void hexdump(unsigned char *d, int l) {
   printf("\n");
 }
 
-void _pigeon_send(const char *dat, int len) {
+void _pigeon_send(char *dat, int len) {
   int sent;
   unsigned char a[0x20];
   int err;
@@ -597,39 +608,39 @@ void pigeon_init() {
   usleep(100*1000);
 
   // 9600 baud at init
-  pigeon_set_baud(9600);
+  __pigeon_set_baud(9600);
 
   // power on pigeon
   pigeon_set_power(1);
   usleep(500*1000);
 
   // baud rate upping
-  pigeon_send("\x24\x50\x55\x42\x58\x2C\x34\x31\x2C\x31\x2C\x30\x30\x30\x37\x2C\x30\x30\x30\x33\x2C\x34\x36\x30\x38\x30\x30\x2C\x30\x2A\x31\x35\x0D\x0A");
+  __pigeon_gps_send_string("\x24\x50\x55\x42\x58\x2C\x34\x31\x2C\x31\x2C\x30\x30\x30\x37\x2C\x30\x30\x30\x33\x2C\x34\x36\x30\x38\x30\x30\x2C\x30\x2A\x31\x35\x0D\x0A");
   usleep(100*1000);
 
   // set baud rate to 460800
-  pigeon_set_baud(460800);
+  __pigeon_set_baud(460800);
   usleep(100*1000);
 
   // init from ubloxd
-  pigeon_send("\xB5\x62\x06\x00\x14\x00\x03\xFF\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x01\x00\x01\x00\x00\x00\x00\x00\x1E\x7F");
-  pigeon_send("\xB5\x62\x06\x3E\x00\x00\x44\xD2");
-  pigeon_send("\xB5\x62\x06\x00\x14\x00\x00\xFF\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x19\x35");
-  pigeon_send("\xB5\x62\x06\x00\x14\x00\x01\x00\x00\x00\xC0\x08\x00\x00\x00\x08\x07\x00\x01\x00\x01\x00\x00\x00\x00\x00\xF4\x80");
-  pigeon_send("\xB5\x62\x06\x00\x14\x00\x04\xFF\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x1D\x85");
-  pigeon_send("\xB5\x62\x06\x00\x00\x00\x06\x18");
-  pigeon_send("\xB5\x62\x06\x00\x01\x00\x01\x08\x22");
-  pigeon_send("\xB5\x62\x06\x00\x01\x00\x02\x09\x23");
-  pigeon_send("\xB5\x62\x06\x00\x01\x00\x03\x0A\x24");
-  pigeon_send("\xB5\x62\x06\x08\x06\x00\x64\x00\x01\x00\x00\x00\x79\x10");
-  pigeon_send("\xB5\x62\x06\x24\x24\x00\x05\x00\x04\x03\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x5A\x63");
-  pigeon_send("\xB5\x62\x06\x1E\x14\x00\x00\x00\x00\x00\x01\x03\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x3C\x37");
-  pigeon_send("\xB5\x62\x06\x24\x00\x00\x2A\x84");
-  pigeon_send("\xB5\x62\x06\x23\x00\x00\x29\x81");
-  pigeon_send("\xB5\x62\x06\x1E\x00\x00\x24\x72");
-  pigeon_send("\xB5\x62\x06\x01\x03\x00\x01\x07\x01\x13\x51");
-  pigeon_send("\xB5\x62\x06\x01\x03\x00\x02\x15\x01\x22\x70");
-  pigeon_send("\xB5\x62\x06\x01\x03\x00\x02\x13\x01\x20\x6C");
+  __pigeon_gps_send_string("\xB5\x62\x06\x00\x14\x00\x03\xFF\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x01\x00\x01\x00\x00\x00\x00\x00\x1E\x7F");
+  __pigeon_gps_send_string("\xB5\x62\x06\x3E\x00\x00\x44\xD2");
+  __pigeon_gps_send_string("\xB5\x62\x06\x00\x14\x00\x00\xFF\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x19\x35");
+  __pigeon_gps_send_string("\xB5\x62\x06\x00\x14\x00\x01\x00\x00\x00\xC0\x08\x00\x00\x00\x08\x07\x00\x01\x00\x01\x00\x00\x00\x00\x00\xF4\x80");
+  __pigeon_gps_send_string("\xB5\x62\x06\x00\x14\x00\x04\xFF\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x1D\x85");
+  __pigeon_gps_send_string("\xB5\x62\x06\x00\x00\x00\x06\x18");
+  __pigeon_gps_send_string("\xB5\x62\x06\x00\x01\x00\x01\x08\x22");
+  __pigeon_gps_send_string("\xB5\x62\x06\x00\x01\x00\x02\x09\x23");
+  __pigeon_gps_send_string("\xB5\x62\x06\x00\x01\x00\x03\x0A\x24");
+  __pigeon_gps_send_string("\xB5\x62\x06\x08\x06\x00\x64\x00\x01\x00\x00\x00\x79\x10");
+  __pigeon_gps_send_string("\xB5\x62\x06\x24\x24\x00\x05\x00\x04\x03\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x5A\x63");
+  __pigeon_gps_send_string("\xB5\x62\x06\x1E\x14\x00\x00\x00\x00\x00\x01\x03\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x3C\x37");
+  __pigeon_gps_send_string("\xB5\x62\x06\x24\x00\x00\x2A\x84");
+  __pigeon_gps_send_string("\xB5\x62\x06\x23\x00\x00\x29\x81");
+  __pigeon_gps_send_string("\xB5\x62\x06\x1E\x00\x00\x24\x72");
+  __pigeon_gps_send_string("\xB5\x62\x06\x01\x03\x00\x01\x07\x01\x13\x51");
+  __pigeon_gps_send_string("\xB5\x62\x06\x01\x03\x00\x02\x15\x01\x22\x70");
+  __pigeon_gps_send_string("\xB5\x62\x06\x01\x03\x00\x02\x13\x01\x20\x6C");
 
   LOGW("grey panda is ready to fly");
 }
@@ -649,7 +660,48 @@ static void pigeon_publish_raw(void *publisher, unsigned char *dat, int alen) {
 }
 
 
-void *pigeon_thread(void *crap) {
+void *pigeon_send_thread(void *crap) {
+  LOGW("start pigeon send thread");
+  // sendgps = 8069
+  void *context = zmq_ctx_new();
+  void *subscriber = zmq_socket(context, ZMQ_SUB);
+  zmq_setsockopt(subscriber, ZMQ_SUBSCRIBE, "", 0);
+  zmq_connect(subscriber, "tcp://10.0.0.199:8069");
+
+  // drain sendgps to delete any stale messages from previous runs
+
+  int err = 0;
+  while(err >= 0) {
+    zmq_msg_t msg;
+    zmq_msg_init(&msg);
+    err = zmq_msg_recv(&msg, subscriber, ZMQ_DONTWAIT);
+    zmq_msg_close(&msg);
+  }
+
+  // run as fast as messages come in
+  while (!do_exit) {
+    zmq_msg_t msg;
+    zmq_msg_init(&msg);
+    err = zmq_msg_recv(&msg, subscriber, 0);
+    assert(err >= 0);
+
+    //FIXME: Debug.
+/*
+    char x[zmq_msg_size(&msg)+1];
+    x[zmq_msg_size(&msg)-1] = 0;
+    memcpy(x, zmq_msg_data(&msg), zmq_msg_size(&msg));
+    printf("sending: ");
+    for (int i = 0; i < zmq_msg_size(&msg); i++)
+      printf("%02x ", x[i]);
+    printf("\n");
+*/
+    _pigeon_send((char *)zmq_msg_data(&msg), zmq_msg_size(&msg));
+    zmq_msg_close(&msg);
+  }
+  return NULL;
+}
+
+void *pigeon_recv_thread(void *crap) {
   // ubloxRaw = 8042
   void *context = zmq_ctx_new();
   void *publisher = zmq_socket(context, ZMQ_PUB);
